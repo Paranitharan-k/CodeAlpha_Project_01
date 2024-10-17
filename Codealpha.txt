@@ -1,0 +1,96 @@
+# Import necessary libraries
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from imblearn.over_sampling import SMOTE
+from sklearn.ensemble import RandomForestClassifier
+import xgboost as xgb
+from sklearn.metrics import classification_report, roc_auc_score, confusion_matrix
+import shap
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Load dataset
+data = pd.read_csv('credit_data.csv')
+
+# Handling missing data (filling NaN values with mean of respective column)
+data.fillna(data.mean(), inplace=True)
+
+# Label Encoding categorical variables (for example: employment status, if categorical)
+le = LabelEncoder()
+data['employment_status'] = le.fit_transform(data['employment_status'])
+
+# Feature scaling for numerical features
+scaler = StandardScaler()
+data[['income', 'debt', 'loan_amount']] = scaler.fit_transform(data[['income', 'debt', 'loan_amount']])
+
+# Define features (X) and target (y)
+X = data.drop('creditworthy', axis=1)
+y = data['creditworthy']
+
+# Handling class imbalance with SMOTE
+smote = SMOTE(random_state=42)
+X_res, y_res = smote.fit_resample(X, y)
+
+# Split the data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X_res, y_res, test_size=0.2, random_state=42)
+
+# --- RANDOM FOREST CLASSIFIER ---
+# Train Random Forest Model
+rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
+rf_model.fit(X_train, y_train)
+
+# Predictions and evaluation for Random Forest
+y_pred_rf = rf_model.predict(X_test)
+
+# Random Forest evaluation metrics
+print("Random Forest Classification Report:")
+print(classification_report(y_test, y_pred_rf))
+print("Random Forest ROC-AUC Score:", roc_auc_score(y_test, y_pred_rf))
+
+# --- XGBOOST CLASSIFIER ---
+# Train XGBoost Model
+xgb_model = xgb.XGBClassifier(n_estimators=100, learning_rate=0.1, random_state=42)
+xgb_model.fit(X_train, y_train)
+
+# Predictions and evaluation for XGBoost
+y_pred_xgb = xgb_model.predict(X_test)
+
+# XGBoost evaluation metrics
+print("XGBoost Classification Report:")
+print(classification_report(y_test, y_pred_xgb))
+print("XGBoost ROC-AUC Score:", roc_auc_score(y_test, y_pred_xgb))
+
+# --- FEATURE IMPORTANCE VISUALIZATION ---
+# Random Forest Feature Importance
+feature_importances = rf_model.feature_importances_
+features = X.columns
+sorted_indices = np.argsort(feature_importances)[::-1]
+
+plt.figure(figsize=(10, 6))
+sns.barplot(x=feature_importances[sorted_indices], y=features[sorted_indices], palette="coolwarm")
+plt.title("Random Forest Feature Importance")
+plt.show()
+
+# --- SHAP VALUES FOR XGBOOST (MODEL EXPLAINABILITY) ---
+# SHAP values to explain XGBoost predictions
+explainer = shap.TreeExplainer(xgb_model)
+shap_values = explainer.shap_values(X_test)
+
+# Visualize SHAP values for feature importance
+shap.summary_plot(shap_values, X_test, feature_names=X.columns)
+
+# --- CONFUSION MATRIX PLOT ---
+def plot_confusion_matrix(y_true, y_pred, title):
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(6, 4))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", cbar=False)
+    plt.title(f"Confusion Matrix - {title}")
+    plt.ylabel('Actual')
+    plt.xlabel('Predicted')
+    plt.show()
+
+# Plot confusion matrices for both models
+plot_confusion_matrix(y_test, y_pred_rf, "Random Forest")
+plot_confusion_matrix(y_test, y_pred_xgb, "XGBoost")
